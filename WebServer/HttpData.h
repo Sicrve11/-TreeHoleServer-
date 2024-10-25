@@ -8,6 +8,8 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include "LRUCache.H"
+#include "LRUCache.h"
 #include "Timer.h"
 #include "SkipList.h"
 
@@ -55,23 +57,9 @@ enum HttpMethod { METHOD_POST = 1, METHOD_GET, METHOD_HEAD };
 
 enum HttpVersion { HTTP_10 = 1, HTTP_11 };
 
-class MimeType {
-private:
-    static void init();
-    static std::unordered_map<std::string, std::string> mime;
-    MimeType();
-    MimeType(const MimeType &m);
-
-public:
-    static std::string getMime(const std::string &suffix);
-
-private:
-    static pthread_once_t once_control;
-};
-
 class HttpData : public std::enable_shared_from_this<HttpData> {
 public:
-    HttpData(EventLoop *loop, int connfd, std::shared_ptr<SkipList> skth);
+    HttpData(EventLoop *loop, int connfd, std::shared_ptr<SkipList> skth, std::shared_ptr<LRUCache<string, string>> lru);
     ~HttpData();
 
     void reset();               // 复位
@@ -94,6 +82,7 @@ private:
     std::string outBuffer_;
     bool error_;
     std::shared_ptr<SkipList> skTreeHole_;
+    std::shared_ptr<LRUCache<string, string>> lru_cache_;
 
     ConnectionState connectionState_;
     HttpMethod method_;

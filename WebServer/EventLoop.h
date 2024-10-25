@@ -37,6 +37,10 @@ public:
     // 半关闭连接
     void shutDown(SP_Channel channel);
 
+    // 获取连接数
+    inline int get_socket_num() {
+        return num_socket_;
+    }
 
 private:
     shared_ptr<Epoll> poller_;      // EventLoop自带的poller
@@ -49,6 +53,7 @@ private:
     // one loop one thread
     const pid_t threadId_;  
     mutable MutexLock mutex_; 
+    int num_socket_;            // 当前reactor中的连接数
 
     // reactor的各种状态
     bool is_looping_;                       // 是否进行事件循环

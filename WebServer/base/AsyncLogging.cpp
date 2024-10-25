@@ -80,6 +80,7 @@ void AsyncLogging::threadFunc() {
         assert(newBuffer2 && newBuffer2->getDataLen() == 0);
         assert(buffersToWrite.empty());
         
+        // 交换缓冲队列时涉及到写入缓冲线程之间的锁
         {
             MutexLockGuard lock(mutex_);
             if(outputBuffers_.empty()) {    // 如果此时outputBuffers_是空的，就停止等待，再次写入会被唤醒
@@ -97,6 +98,7 @@ void AsyncLogging::threadFunc() {
                 nextBufferPtr_ = std::move(newBuffer2);
             }
         }
+
         // 下面这一段是将buffersToWrite写回文件
         assert(!buffersToWrite.empty());
         if (buffersToWrite.size() > 25) {       // 当超过25个缓冲块时进行裁剪

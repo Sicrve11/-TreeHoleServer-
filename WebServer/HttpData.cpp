@@ -8,6 +8,7 @@
 #include <iostream>
 #include "Channel.h"
 #include "EventLoop.h"
+#include "LRUCache.h"
 #include "Util.h"
 #include "base/Logger.h"
 #include "time.h"
@@ -18,12 +19,13 @@ const __uint32_t DEFAULT_EVENT = EPOLLIN | EPOLLET | EPOLLONESHOT;
 const int DEFAULT_EXPIRED_TIME = 2000;              // 2000 ms
 const int DEFAULT_KEEP_ALIVE_TIME = 5 * 60 * 1000;  // 30000 ms
 
-HttpData::HttpData(EventLoop *loop, int connfd, std::shared_ptr<SkipList> skth)
+HttpData::HttpData(EventLoop *loop, int connfd, std::shared_ptr<SkipList> skth, std::shared_ptr<LRUCache<string, string>> lru)
     : loop_(loop),
       channel_(new Channel(loop, connfd)),
       fd_(connfd),
       error_(false),
       skTreeHole_(skth),
+      lru_cache_(lru),
       connectionState_(H_CONNECTED),
       method_(METHOD_GET),
       HTTPVersion_(HTTP_11),
@@ -32,17 +34,19 @@ HttpData::HttpData(EventLoop *loop, int connfd, std::shared_ptr<SkipList> skth)
       hState_(H_START),
       keepAlive_(false) {
     // 绑定事务函数
+    channel_->setEvents(DEFAULT_EVENT);     
     channel_->setReadHandler(bind(&HttpData::handleRead, this));
     channel_->setWriteHandler(bind(&HttpData::handleWrite, this));
     channel_->setConnHandler(bind(&HttpData::handleConn, this));
 }
 
 HttpData::~HttpData() { 
+
     // 释放资源
     channel_.reset();
     skTreeHole_.reset();
-    LOG << "FD = " << fd_ << " connection closed!\n";
-    cout << "FD = " << fd_ << " connection closed!" << endl;
+    // LOG << "FD = " << fd_ << " connection closed!\n";
+    // cout << "FD = " << fd_ << " connection closed!" << endl;
     close(fd_);     // 关闭连接 
 }
 
@@ -56,7 +60,7 @@ void HttpData::reset() {
     state_ = STATE_PARSE_URI;
     hState_ = H_START;
     headers_.clear();
-    // keepAlive_ = false;
+
     if (timer_.lock()) {    // 脱离timer
         // 通过weak_ptr获取对应的shared_ptr, 这样会使该对象引用加1
         shared_ptr<TimerNode> my_timer(timer_.lock());
@@ -66,6 +70,7 @@ void HttpData::reset() {
 }
 
 void HttpData::seperateTimer() {
+    
     // cout << "seperateTimer" << endl;
     if (timer_.lock()) {
         shared_ptr<TimerNode> my_timer(timer_.lock());
@@ -305,65 +310,72 @@ AnalysisState HttpData::analysisRequest() {
 
     } else if (method_ == METHOD_GET || method_ == METHOD_HEAD) {
         // 根据请求返回获取数据
-
-        string header;
-        header += "HTTP/1.1 200 OK\r\n";
-        if (headers_.find("Connection") != headers_.end() &&
-            (headers_["Connection"] == "Keep-Alive" || headers_["Connection"] == "keep-alive")) {
-            keepAlive_ = true;
-            header += string("Connection: Keep-Alive\r\n") + "Keep-Alive: timeout=" + 
-                    to_string(DEFAULT_KEEP_ALIVE_TIME) + "\r\n";
-        }
-
+        string header = "";
         string items = "";
-        if(fileName_ == "index.html") {
-            items += "<html><title>Sicrve's TreeHole</title>";
-            items += "<body bgcolor=\"ffffff\">";
-            items += "<hr><em> 欢迎来到 Sicrve's 树洞服务器！欢迎留言！ </em></body></html>";
+
+        // 首先检查缓存
+        if(lru_cache_->get(fileName_, header)) {
+            outBuffer_ += header;
+
         } else {
-            size_t dot_pos = fileName_.find('@');
-            unsigned long get_key = 0;
-            int get_num = 0;
-    
-            if (dot_pos == fileName_.npos) {
-                header.clear();
-                handleError(fd_, 404, "Not Found!");
-                return ANALYSIS_ERROR;
-            } else {
-                string tmp;
-                tmp = fileName_.substr(0, dot_pos);
-                get_key = stoi(tmp);
-                tmp = fileName_.substr(dot_pos+1);
-                get_num = stoi(tmp);
+            // 如果缓存不命中则才进行报文组装
+            header += "HTTP/1.1 200 OK\r\n";
+            if (headers_.find("Connection") != headers_.end() &&
+                (headers_["Connection"] == "Keep-Alive" || headers_["Connection"] == "keep-alive")) {
+                keepAlive_ = true;
+                header += string("Connection: Keep-Alive\r\n") + "Keep-Alive: timeout=" + 
+                        to_string(DEFAULT_KEEP_ALIVE_TIME) + "\r\n";
             }
 
-            // 获取指定留言数据
-            cout << "get_key: " << get_key << endl;
-            cout << "get_num: " << get_num << endl;
-
-            if(get_key != 0 && get_num != 0) {
-                items += skTreeHole_->getItems(get_key, get_num);
-            } else if(get_key == 0) {
-                items += skTreeHole_->getItems(get_num);
+            if(fileName_ == "index.html") {
+                items += "<html><title>Sicrve's TreeHole</title>";
+                items += "<body bgcolor=\"ffffff\">";
+                items += "<hr><em> 欢迎来到 Sicrve's 树洞服务器！欢迎留言！ </em></body></html>";
             } else {
-                items += skTreeHole_->getItems(get_key);
+                size_t dot_pos = fileName_.find('@');
+                unsigned long get_key = 0;
+                int get_num = 0;
+        
+                if (dot_pos == fileName_.npos) {
+                    header.clear();
+                    handleError(fd_, 404, "Not Found!");
+                    return ANALYSIS_ERROR;
+                } else {
+                    string tmp;
+                    tmp = fileName_.substr(0, dot_pos);
+                    get_key = stoi(tmp);
+                    tmp = fileName_.substr(dot_pos+1);
+                    get_num = stoi(tmp);
+                }
+
+                // 获取指定留言数据
+                cout << "get_key: " << get_key << endl;
+                cout << "get_num: " << get_num << endl;
+
+                if(get_key != 0 && get_num != 0) {
+                    items += skTreeHole_->getItems(get_key, get_num);
+                } else if(get_key == 0) {
+                    items += skTreeHole_->getItems(get_num);
+                } else {
+                    items += skTreeHole_->getItems(get_key);
+                }
             }
+
+            // cout << "items: " << items << endl;
+            header += "Content-type: text/plain\r\n";
+            header += "Content-Length: " + to_string(items.size()) + "\r\n";
+            header += "Server: Sicrve's TreeHole Server\r\n";
+
+            // 头部结束
+            header += "\r\n";
+
+            outBuffer_ += header;
+            if (method_ == METHOD_HEAD) return ANALYSIS_SUCCESS;
+            outBuffer_ += items;
+
+            lru_cache_->put(fileName_, outBuffer_);
         }
 
-        // cout << "items: " << items << endl;
-
-        header += "Content-type: text/plain\r\n";
-        header += "Content-Length: " + to_string(items.size()) + "\r\n";
-        header += "Server: Sicrve's TreeHole Server\r\n";
-
-        // 头部结束
-        header += "\r\n";
-        outBuffer_ += header;
-
-        if (method_ == METHOD_HEAD) return ANALYSIS_SUCCESS;
-
-        outBuffer_ += items;
-        items.clear();
         return ANALYSIS_SUCCESS;
     }
 
@@ -373,8 +385,9 @@ AnalysisState HttpData::analysisRequest() {
 
 // 分别处理不同的事件
 void HttpData::handleRead() {
-    __uint32_t &events_ = channel_->getEvents();
+    // __uint32_t &events_ = channel_->getEvents();
     do {
+        // 00 读取数据 && 异常检测
         bool zero = false;
         int read_num = readn(fd_, inBuffer_, zero);
         // LOG << "Request: " << inBuffer_;
@@ -397,7 +410,6 @@ void HttpData::handleRead() {
             if (read_num == 0) {
                 break;
             }
-        // cout << "readnum == 0" << endl;
         }
 
         // 01 解析URL
@@ -431,29 +443,9 @@ void HttpData::handleRead() {
             }
 
             state_ = STATE_ANALYSIS;
-            // if (method_ == METHOD_POST) {
-            //     // POST方法准备
-            //     state_ = STATE_RECV_BODY;
-            // } else {
-            //     state_ = STATE_ANALYSIS;
-            // }
         }
 
         // 03 解析数据体
-        // if (state_ == STATE_RECV_BODY) {        // post请求需要额外再进行解析
-        //     int content_length = -1;
-        //     if (headers_.find("Content-length") != headers_.end()) {
-        //         content_length = stoi(headers_["Content-length"]);
-        //     } else {
-        //         // cout << "(state_ == STATE_RECV_BODY)" << endl;
-        //         error_ = true;
-        //         handleError(fd_, 400, "Bad Request: Lack of argument (Content-length)");
-        //         break;
-        //     }
-        //     if (static_cast<int>(inBuffer_.size()) < content_length) break;
-        //     state_ = STATE_ANALYSIS;
-        // }
-
         if (state_ == STATE_ANALYSIS) {
             AnalysisState flag = this->analysisRequest();
             if (flag == ANALYSIS_SUCCESS) {
@@ -466,30 +458,21 @@ void HttpData::handleRead() {
             }
         }
     } while(false);
-    // cout << "state_=" << state_ << endl;
-    if (!error_) {
-        if (outBuffer_.size() > 0) {
-            handleWrite();
+
+    if(!error_) {
+        if (outBuffer_.size() > 0) {   // 如果有要发送的数据，就发送
+            handleWrite();          
             outBuffer_.clear();
-            events_ |= EPOLLOUT;
         }
 
         // error_ may change
         if (!error_ && state_ == STATE_FINISH) {
-            this->reset();
+            this->reset();          // 状态清零
+
             if (inBuffer_.size() > 0) {
-                if (connectionState_ != H_DISCONNECTING) handleRead();
+                if (connectionState_ != H_DISCONNECTING) handleRead();      // 对端没关闭
             }
-            // if ((keepAlive_ || inBuffer_.size() > 0) && connectionState_ == H_CONNECTED)
-            // {
-            //     events_ |= EPOLLIN;
-            // }
-        } else if (!error_ && connectionState_ != H_DISCONNECTED) 
-            events_ |= EPOLLIN;
-    } 
-    else {
-        // loop_->runInLoop(bind(&HttpData::handleClose, shared_from_this()));
-        handleConn();   // 关闭连接
+        }
     }
 }
 
@@ -505,6 +488,8 @@ void HttpData::handleWrite() {
     }
 }
 
+
+// 每次处理完后对连接状态的更新
 void HttpData::handleConn() {
     seperateTimer();
     __uint32_t &events_ = channel_->getEvents();
@@ -531,7 +516,7 @@ void HttpData::handleConn() {
         }
     } else if (!error_ && connectionState_ == H_DISCONNECTING && (events_ & EPOLLOUT)) {
         events_ = (EPOLLOUT | EPOLLET);
-    } else {
+    } else {        // 出错关闭连接
         loop_->runInLoop(bind(&HttpData::handleClose, shared_from_this()));
     }
 }
@@ -568,6 +553,5 @@ void HttpData::handleClose() {
 
 // 建立连接的回调函数，channel设置为边缘触发模式
 void HttpData::newEvent() {
-    channel_->setEvents(DEFAULT_EVENT);     
     loop_->addToPoller(channel_, DEFAULT_EXPIRED_TIME);
 }

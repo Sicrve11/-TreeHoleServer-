@@ -2,11 +2,11 @@
 
 #pragma once
 #include <cstddef>
-#include <mutex>
 #include <iostream>
 #include <fstream>
 #include <vector>
 #include <memory>
+#include "base/MutexLock.h"
 #include "TreeHole.h"
 using namespace std;
 
@@ -44,7 +44,7 @@ class SkipList {
 
         bool insert(shared_ptr<TreeHole>&,  int);
 
-        mutex mtx_;
+        MutexLock mtx_;
 
         int maxItemsLimited_;       // 可获得的最大留言数
         string filename_;           // 本地存储文件

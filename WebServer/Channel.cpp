@@ -44,17 +44,15 @@ void  Channel::handleEvents() {
     if ((revents_ & EPOLLHUP) && !(revents_ & EPOLLIN)) {       // 挂起没有读任务就直接返回
         events_ = 0;
         return;
-    }
-    if (revents_ & EPOLLERR) {
+    } else if (revents_ & EPOLLERR) {
         if (errorHandler_) errorHandler_();
         events_ = 0;
         return;
-    }
-    if (revents_ & (EPOLLIN | EPOLLPRI | EPOLLRDHUP)) {
+    } else if (revents_ & (EPOLLIN | EPOLLPRI | EPOLLRDHUP)) {
         handleRead();
-    }
-    if (revents_ & EPOLLOUT) {
+    } else if (revents_ & EPOLLOUT) {
         handleWrite();
     }
-    handleConn();       // 这里是将连接和关闭放在了一起
+    
+    handleConn();       // 连接后处理
 }

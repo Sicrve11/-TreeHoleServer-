@@ -14,6 +14,7 @@ public:
 
     void start();
     EventLoop* getNextLoop();
+    EventLoop* getLeastLoop();
 
 private:
     EventLoop* baseLoop_;   

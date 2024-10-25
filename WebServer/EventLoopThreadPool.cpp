@@ -37,3 +37,21 @@ EventLoop* EventLoopThreadPool::getNextLoop() {
     }
     return loop;
 }
+
+EventLoop* EventLoopThreadPool::getLeastLoop() {
+    baseLoop_->assertInLoopThread();
+    assert(is_started);
+    EventLoop* loop;
+    int idx = 0;
+    int cnt_socket = loops_[idx]->get_socket_num();
+    
+    for(int i = 0; i < numThreads_; i++) {
+        int tmp = loops_[i]->get_socket_num();
+        if(tmp < cnt_socket) {
+            idx = i;
+            cnt_socket = tmp;
+        }
+    }
+    loop = loops_[idx];
+    return loop;
+}

@@ -2,7 +2,6 @@
 
 #include "SkipList.h"
 #include "TreeHole.h"
-#include <iterator>
 #include <sstream>
 #include <cstddef>
 #include <string>
@@ -122,7 +121,8 @@ bool SkipList::insertNode(const string& username, const string& whisper, const s
 bool SkipList::insert(shared_ptr<TreeHole>& inserted_node, int random_level) {
     size_t key = inserted_node->getKey();
 
-    mtx_.lock(); 
+    // mtx_.lock(); 
+    MutexLockGuard lock(mtx_);
     shared_ptr<TreeHole> current = this->header_;
 
     // 首先查找目标节点，并记录每一层跳表的修改点
@@ -138,7 +138,6 @@ bool SkipList::insert(shared_ptr<TreeHole>& inserted_node, int random_level) {
     current = current->forward[0];
     if (current != NULL && current->getKey() == key) {
         inserted_node = nullptr;
-        mtx_.unlock();
         return false;
     }
 
@@ -160,14 +159,12 @@ bool SkipList::insert(shared_ptr<TreeHole>& inserted_node, int random_level) {
         elementCount_ ++;
     }
 
-    mtx_.unlock();
     return true;
 }
 
 
 void SkipList::deleteNode(unsigned long key) {
-
-    mtx_.lock();
+    MutexLockGuard lock(mtx_);
 
     shared_ptr<TreeHole> current = this->header_;
     vector<shared_ptr<TreeHole>> update(maxLevel_ + 1, nullptr);
@@ -192,12 +189,11 @@ void SkipList::deleteNode(unsigned long key) {
 
         elementCount_ --;
     }
-    mtx_.unlock();
+
     return;
 }
 
 // Get current SkipList size 
-
 int SkipList::getSize() { 
     return elementCount_;
 }
@@ -238,7 +234,7 @@ string SkipList::getItems(unsigned long key, int num) {
 
     return items;
 }
-        
+
 // 按指定数量获取
 string SkipList::getItems(int num) {
     int cnt = min(num, min(maxItemsLimited_, elementCount_));

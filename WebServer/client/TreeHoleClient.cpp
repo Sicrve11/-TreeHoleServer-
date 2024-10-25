@@ -28,7 +28,7 @@ TreeHoleClient::TreeHoleClient(const string& ip, int port, const string& user)
     const char* servIP_in = servIP_.c_str();
     inet_pton(AF_INET, servIP_in, &servaddr.sin_addr);
 
-    // 发"GET  HTTP/1.1"
+    
     sockfd_ = socket(PF_INET, SOCK_STREAM, 0);
     if (connect(sockfd_, (struct sockaddr *)&servaddr, sizeof(servaddr)) == -1) {
         perror("err2");
@@ -36,7 +36,7 @@ TreeHoleClient::TreeHoleClient(const string& ip, int port, const string& user)
     setSocketNonBlocking1(sockfd_);
     
     cout << " ***** 服务器连接成功！欢迎 " << username_ << " 的访问！ ***** " << endl;
-
+    // 发"GET  HTTP/1.1"
     // 发送hello，获取index.html
     string p = "GET / HTTP/1.1\r\nHost: " + servIP_ + ":" + to_string(servPort_) + "\r\nContent-Type: "
                 "application/x-www-form-urlencoded\r\nConnection: Keep-Alive\r\n\r\n";

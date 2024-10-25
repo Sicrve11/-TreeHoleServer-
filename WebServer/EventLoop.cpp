@@ -14,7 +14,7 @@ int createEventfd() {
     // eventfd内部有计数器，read会清零，write会增加计数器，如果大于0则说明有读任务
     int evtfd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
     if(evtfd < 0) {
-        LOG << "Failed in eventfd";
+        // LOG << "Failed in eventfd";
         abort();
     }
     return evtfd;
@@ -25,12 +25,13 @@ EventLoop::EventLoop() :
     wakeupFd_(createEventfd()),
     pwakeupChannel_(new Channel(this, wakeupFd_)),
     threadId_(CurrentThread::tid()),
+    num_socket_(0),
     is_looping_(false), 
     is_quit_(false), 
     is_eventHandling_(false), 
     is_callingPendingFunctions_(false) {
     if(t_loopInThisThread) {
-        LOG << "Another EventLoop exists in this thread ";
+        // LOG << "Another EventLoop exists in this thread ";
         // LOG << "Another EventLoop " << t_loopInThisThread << " exists in this thread " << threadId_;
     } else {
         t_loopInThisThread = this;
@@ -56,12 +57,11 @@ void EventLoop::wakeup() {      // 子reactor唤醒函数接口
     uint64_t one = 1;
     ssize_t n = writen(wakeupFd_, (char*)(&one), sizeof one);
     if (n != sizeof one) {
-        LOG << "EventLoop::wakeup() writes " << n << " bytes instead of 8";
+        // LOG << "EventLoop::wakeup() writes " << n << " bytes instead of 8";
     }
 }
 
-void EventLoop::
-queueInLoop(Function&& func) {
+void EventLoop::queueInLoop(Function&& func) {
     // 加线程锁，将某个事件加入子reactor等待执行队列
     {
         MutexLockGuard lock(mutex_);
@@ -93,6 +93,7 @@ void EventLoop::assertInLoopThread() {
 // poller的接口
 void EventLoop::addToPoller(SP_Channel channel, int timeout) {
     poller_->epoll_add(channel, timeout);
+    ++num_socket_;
 }
 
 void EventLoop::updatePoller(SP_Channel channel, int timeout) {
@@ -102,6 +103,7 @@ void EventLoop::updatePoller(SP_Channel channel, int timeout) {
 void EventLoop::removeFromPoller(SP_Channel channel) {
     // shutDownWR(channel->getFd());
     poller_->epoll_del(channel);
+    --num_socket_;
 }
 
 
@@ -114,7 +116,7 @@ void EventLoop::handleRead() {
     uint64_t one = 1;
     ssize_t n = readn(wakeupFd_, &one, sizeof one);
     if (n != sizeof one) {
-        LOG << "EventLoop::handleRead() reads " << n << " bytes instead of 8";
+        // LOG << "EventLoop::handleRead() reads " << n << " bytes instead of 8";
     }
     // pwakeupChannel_->setEvents(EPOLLIN | EPOLLET | EPOLLONESHOT);
     pwakeupChannel_->setEvents(EPOLLIN | EPOLLET);
@@ -178,4 +180,3 @@ void EventLoop::quit() {
         wakeup();
     }
 }
-

@@ -89,7 +89,7 @@ std::vector<SP_Channel> Epoll::poll() {
             cur_req->setEvents(0);                      // event是监控的事件集合
             poll_list.push_back(cur_req);
         } else {
-            LOG << "SP_cur_req is invalid";
+            // LOG << "SP_cur_req is invalid";
         }
     }
 
